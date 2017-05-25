@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title></title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: sans-serif;
+        font-weight: 400;
+        font-size: 1.5vw;
+      }
+      svg {
+        display: block;
+      }
+      .graphs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto 5fr 3fr 3fr 3fr;
+        height: 100vh;
+        grid-gap: 1.5vw;
+        padding: 1.5vw;
+      }
+      .graphs > div {
+        position: relative;
+        border-radius: .2vw;
+        overflow: hidden;
+      }
+      .graphs > header {
+        grid-column: span 2;
+      }
+      .commits {
+        background: #f4f4f8;
+        grid-column: span 2;
+      }
+      .axis .domain {
+        stroke: none;
+      }
+      .axis line {
+        stroke: #ccc;
+      }
+      .individual {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        border: 1px solid #E1E1E6;
+      }
+      .individual header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: .5vw;
+      }
+      .individual .avatar {
+        height: 2vw;
+        width: 2vw;
+        margin-right: 1vw;
+      }
+      .individual .graph {
+        position: relative;
+        background: #f4f4f8;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="graphs">
+      <header>
+        Commit Activity for
+      </header>
+      <div class="commits"></div>
+      <div class="individual">
+        <header></header><div class="graph"></div>
+      </div>
+      <div class="individual">
+        <header></header><div class="graph"></div>
+      </div>
+      <div class="individual">
+        <header></header><div class="graph"></div>
+      </div>
+      <div class="individual">
+        <header></header><div class="graph"></div>
+      </div>
+      <div class="individual">
+        <header></header><div class="graph"></div>
+      </div>
+      <div class="individual">
+        <header></header><div class="graph"></div>
+      </div>
+    </section>
+    <script src="d3.min.js"></script>
+    <script>
+
+      let params = (new URL(window.location)).searchParams;
+      let repo = params.get('repo');
+
+      document.querySelector('.graphs > header').innerHTML += repo;
+
+      function fetchWait(url) {
+        return fetch(url)
+          .then(r => {
+            if (r.status === 202) {
+              return wait(2000).then(() => fetch(url))
+            } else {
+              return r;
+            }
+          });
+      }
+
+      function wait(ms) {
+        return new Promise((res) => {
+          setTimeout(res, ms);
+        });
+      }
+
+      window.addEventListener('load', function (e) {
+        Promise.all([
+          fetchWait(`https://api.github.com/repos/${repo}/stats/commit_activity`).then(r => r.json()),
+          fetchWait(`https://api.github.com/repos/${repo}/stats/contributors`).then(r => r.json())
+        ]).then(drawGraphs).catch(e => console.error(e));
+      });
+
+      function drawGraphs([commits, contributors]) {
+        drawCommits(commits);
+        drawContributors(contributors);
+      }
+
+      function drawCommits(data) {
+        let container = d3.select('.commits');
+
+        let elWidth = container.node().offsetWidth;
+        let elHeight = container.node().offsetHeight;
+
+        let svg = container.append('svg')
+          .attr('width', elWidth)
+          .attr('height', elHeight);
+
+        let margin = {top: 10, right: 20, bottom: 30, left: 35};
+
+        let width = elWidth - margin.left - margin.right;
+        let height = elHeight - margin.top - margin.bottom;
+
+        let g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        let x = d3.scaleTime()
+        .rangeRound([0, width]);
+
+        let y = d3.scaleLinear()
+        .rangeRound([height, 0]);
+
+        let area = d3.area()
+        .x(function(d) { return x(d.week * 1000); })
+        .y1(function(d) { return y(d.total); })
+        .curve(d3.curveBasis);
+
+        x.domain(d3.extent(data, function(d) { return d.week * 1000; }));
+        y.domain([0, d3.max(data, function(d) { return d.total; })]);
+        area.y0(y(0));
+
+        g.append("g")
+        .attr('class', 'axis axis-bottom')
+        .attr("transform", "translate(0," + height + ")")
+        .call(d3.axisBottom(x));
+
+        g.append("g")
+        .attr('class', 'axis axis-left')
+        .call(d3.axisLeft(y).tickPadding(8).ticks(5).tickSize(-width))
+
+        g.append("path")
+        .datum(data)
+        .attr("fill", "#28a745")
+        .attr("fill-opacity", 0.5)
+        .attr("d", area);
+      }
+
+      function drawContributors(contributors) {
+
+        contributors = contributors.sort((a, b) => b.total - a.total);
+
+        let graphs = Array.from(document.querySelectorAll('.individual'));
+
+        let globalMax = d3.max(contributors, function (d) {
+          return d3.max(d.weeks, function(d) { return d.c; })
+        });
+
+        graphs.forEach((graph, i) => {
+          let row = contributors[i];
+          let data = row.weeks;
+          let box = d3.select(graph);
+
+          let header = box.select('header')
+
+          header.append('img')
+            .attr('class', 'avatar')
+            .attr('src', row.author.avatar_url);
+
+          header.append('div')
+            .text(row.author.login);
+
+          let container = box.select('.graph')
+
+          let elWidth = container.node().offsetWidth;
+          let elHeight = container.node().offsetHeight;
+
+          let svg = container.append('svg')
+            .attr('width', elWidth)
+            .attr('height', elHeight);
+
+          let margin = {top: 5, right: 15, bottom: 25, left: 30};
+
+          let width = elWidth - margin.left - margin.right;
+          let height = elHeight - margin.top - margin.bottom;
+
+          let g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+          let x = d3.scaleTime()
+          .rangeRound([0, width]);
+
+          let y = d3.scaleLinear()
+          .rangeRound([height, 0]);
+
+          let area = d3.area()
+          .x(function(d) { return x(d.w * 1000); })
+          .y1(function(d) { return y(d.c); })
+          .curve(d3.curveBasis);
+
+          x.domain(d3.extent(data, function(d) { return d.w * 1000; }));
+          y.domain([0, globalMax]);
+          area.y0(y(0));
+
+          g.append("g")
+          .attr('class', 'axis axis-bottom')
+          .attr("transform", "translate(0," + height + ")")
+          .call(d3.axisBottom(x));
+
+          g.append("g")
+          .attr('class', 'axis axis-left')
+          .call(d3.axisLeft(y).tickPadding(8).ticks(3).tickSize(-width))
+
+          g.append("path")
+          .datum(data)
+          .attr("fill", "#28a745")
+          .attr("fill-opacity", 0.5)
+          .attr("d", area);
+        });
+      }
+
+    </script>
+  </body>
+</html>
